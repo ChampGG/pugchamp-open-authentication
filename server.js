@@ -9,6 +9,7 @@ const config = require('config');
 const express = require('express');
 const fs = require('fs');
 const http = require('http');
+const moment = require('moment');
 const ms = require('ms');
 const redis = require('redis');
 const Steam = require('steam-webapi');
@@ -16,6 +17,7 @@ const SteamID = require('steamid');
 
 bluebird.promisifyAll(redis.RedisClient.prototype);
 bluebird.promisifyAll(redis.Multi.prototype);
+require('moment-duration-format');
 
 var app = express();
 var client = redis.createClient(config.get('redis'));
@@ -167,27 +169,37 @@ Steam.ready(function(err) {
             }
 
             let gameResult = yield steam.getOwnedGamesAsync({
-                input_json: JSON.stringify({
-                    steamid: steam64,
-                    include_appinfo: false,
-                    include_played_free_games: true,
-                    appids_filter: [440]
-                })
+                steamid: steam64,
+                include_appinfo: false,
+                include_played_free_games: true,
+                appids_filter: [440]
             });
 
-            if (!gameResult || !gameResult.games || !gameResult.games[0] || gameResult.games[0].appid !== 440) {
-                res.sendStatus(500);
-                return;
+            if (!gameResult) {
+                throw new Error('failed to retrieve games from Steam API');
             }
 
-            let gameInfo = gameResult.games[0];
+            if (_.has(gameResult, 'game_count')) {
+                if (gameResult.game_count > 0) {
+                    let gameInfo = gameResult.games[0];
 
-            if (gameInfo.playtime_forever < HOUR_THRESHOLD) {
-                postUserAlert(steam64, false, `has only ${gameInfo.playtime_forever} hours on record`);
+                    if (gameInfo.appid !== 440) {
+                        throw new Error('game returned was not TF2');
+                    }
+
+                    if (gameInfo.playtime_forever < (HOUR_THRESHOLD * 60)) {
+                        let totalDuration = moment.duration(gameInfo.playtime_forever, 'minutes').format('h:mm');
+                        postUserAlert(steam64, false, `has only ${totalDuration} on record`);
+                    }
+
+                    if (gameInfo.playtime_2weeks > 20160) {
+                        let recentDuration = moment.duration(gameInfo.playtime_2weeks, 'minutes').format('w[w] d[d] h:mm');
+                        postUserAlert(steam64, false, `has an impossible ${recentDuration} in the past two weeks`);
+                    }
+                }
             }
-
-            if (gameInfo.playtime_2weeks > 336) {
-                postUserAlert(steam64, false, `has an impossible ${gameInfo.playtime_2weeks} hours in the past two weeks`);
+            else {
+                postUserAlert(steam64, false, `has a private profile`);
             }
 
             client.set(`open-authorization-${steam64}`, true, 'PX', ms('1d'));
