@@ -16,7 +16,6 @@ const SteamID = require('steamid');
 
 bluebird.promisifyAll(redis.RedisClient.prototype);
 bluebird.promisifyAll(redis.Multi.prototype);
-bluebird.promisifyAll(Steam.prototype);
 
 var app = express();
 var client = redis.createClient(config.get('redis'));
@@ -72,6 +71,8 @@ Steam.ready(function(err) {
     if (err) {
         throw err;
     }
+
+    bluebird.promisifyAll(Steam.prototype);
 
     var steam = new Steam();
 
