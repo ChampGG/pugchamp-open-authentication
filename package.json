@@ -1,0 +1,77 @@
+{
+  "name": "pugchamp-na-pro-authorization",
+  "main": "server.js",
+  "author": "ChampGG",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "bluebird": "^3.3.4",
+    "co": "^4.6.0",
+    "config": "^1.19.0",
+    "express": "^4.13.4",
+    "lodash": "^4.2.1",
+    "ms": "^0.7.1",
+    "redis": "^2.4.2",
+    "request-promise": "^2.0.0",
+    "safe-eval": "^0.2.0",
+    "steam-webapi": "^0.6.5",
+    "steamid": "^0.3.1"
+  },
+  "eslintConfig": {
+    "env": {
+      "es6": true,
+      "node": true
+    },
+    "extends": "eslint:recommended",
+    "parserOptions": {
+      "ecmaVersion": 6
+    },
+    "rules": {
+      "array-callback-return": 2,
+      "arrow-body-style": 2,
+      "arrow-parens": [
+        2,
+        "as-needed"
+      ],
+      "arrow-spacing": 2,
+      "block-scoped-var": 2,
+      "brace-style": [
+        2,
+        "stroustrup"
+      ],
+      "callback-return": 2,
+      "comma-style": 2,
+      "curly": 2,
+      "dot-location": 2,
+      "dot-notation": 2,
+      "eqeqeq": 2,
+      "generator-star-spacing": [
+        2,
+        "after"
+      ],
+      "global-require": 2,
+      "handle-callback-err": 2,
+      "key-spacing": 2,
+      "no-confusing-arrow": 2,
+      "no-mixed-requires": 2,
+      "no-new-require": 2,
+      "no-path-concat": 2,
+      "no-process-exit": 2,
+      "no-shadow": 2,
+      "no-throw-literal": 2,
+      "no-unneeded-ternary": 2,
+      "no-use-before-define": 2,
+      "object-shorthand": 2,
+      "operator-assignment": 2,
+      "prefer-spread": 2,
+      "prefer-template": 2,
+      "require-yield": 2,
+      "quotes": [
+        2,
+        "single"
+      ],
+      "template-curly-spacing": 2,
+      "yoda": 2
+    }
+  }
+}

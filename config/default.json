@@ -1,0 +1,5 @@
+{
+    "hourThreshold": 250,
+    "listen": 3000,
+    "redis": "redis://localhost"
+}

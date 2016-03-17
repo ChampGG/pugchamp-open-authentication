@@ -1,0 +1,12 @@
+{
+    "slack": {
+        "incomingWebhook": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+        "messageDefaults": {
+            "username": "champbot",
+            "icon_emoji": ":trophy:"
+        }
+    },
+    "steam": {
+        "apiKey": "XXXXXXXXXXXXXXXXX"
+    }
+}
