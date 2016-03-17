@@ -188,17 +188,20 @@ Steam.ready(function(err) {
 
                     if (gameInfo.playtime_forever < (HOUR_THRESHOLD * 60)) {
                         let totalDuration = moment.duration(gameInfo.playtime_forever, 'minutes').format('h:mm');
-                        postUserAlert(steam64, false, `has only ${totalDuration} on record`);
+                        postUserAlert(steam64, false, `has only ${totalDuration} on record for TF2`);
                     }
 
                     if (gameInfo.playtime_2weeks > 20160) {
                         let recentDuration = moment.duration(gameInfo.playtime_2weeks, 'minutes').format('w[w] d[d] h:mm');
-                        postUserAlert(steam64, false, `has an impossible ${recentDuration} in the past two weeks`);
+                        postUserAlert(steam64, false, `has an impossible ${recentDuration} in the past two weeks for TF2`);
                     }
+                }
+                else {
+                    postUserAlert(steam64, false, 'does not own TF2');
                 }
             }
             else {
-                postUserAlert(steam64, false, `has a private profile`);
+                postUserAlert(steam64, false, 'has a private profile');
             }
 
             client.set(`open-authorization-${steam64}`, true, 'PX', ms('1d'));
