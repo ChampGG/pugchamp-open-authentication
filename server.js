@@ -1,5 +1,5 @@
 /* jshint node: true, esversion: 6, eqeqeq: true, latedef: true, undef: true, unused: true */
-"use strict";
+'use strict';
 
 const _ = require('lodash');
 const bluebird = require('bluebird');
@@ -32,7 +32,6 @@ let sendToSlack;
 
 if (config.has('slack')) {
     const SLACK_INCOMING_WEBHOOK_URL = config.get('slack.incomingWebhook');
-    const SLACK_MESSAGE_DEFAULTS = config.get('slack.messageDefaults');
 
     let controller = Botkit.slackbot();
     let bot = controller.spawn({
@@ -50,7 +49,7 @@ function postUserAlert(steamID, denied, reason) {
         let message = `${steamID} was ${denied ? 'DENIED' : 'flagged'}: ${reason}`;
 
         if (sendToSlack) {
-            let message = {
+            let slackMessage = {
                 channel: '#user-alerts',
                 attachments: [{
                     fallback: message,
@@ -61,7 +60,7 @@ function postUserAlert(steamID, denied, reason) {
                 }]
             };
 
-            yield sendToSlack(_.defaultsDeep(message, SLACK_MESSAGE_DEFAULTS));
+            yield sendToSlack(_.defaultsDeep(slackMessage, config.get('slack.messageDefaults')));
         }
         else {
             console.log(message);
@@ -114,7 +113,7 @@ Steam.ready(function(err) {
             }
 
             try {
-                let cacheResult = yield client.getAsync('open-authorization-' + steam64);
+                let cacheResult = yield client.getAsync(`open-authorization-${steam64}`);
 
                 if (cacheResult) {
                     let authorized = JSON.parse(cacheResult);
@@ -145,14 +144,14 @@ Steam.ready(function(err) {
             let playerBans = bansResult.players[0];
 
             if (playerBans.VACBanned) {
-                client.set('open-authorization-' + steam64, false);
+                client.set(`open-authorization-${steam64}`, false);
                 postUserAlert(steam64, true, 'VAC bans on record');
                 res.sendStatus(403);
                 return;
             }
 
             if (playerBans.NumberOfGameBans > 0) {
-                client.set('open-authorization-' + steam64, false, 'PX', ms('1w'));
+                client.set(`open-authorization-${steam64}`, false, 'PX', ms('1w'));
                 postUserAlert(steam64, true, 'game bans on record');
                 res.sendStatus(403);
                 return;
@@ -190,7 +189,7 @@ Steam.ready(function(err) {
                 postUserAlert(steam64, false, `has an impossible ${gameInfo.playtime_2weeks} hours in the past two weeks`);
             }
 
-            client.set('open-authorization-' + steam64, true, 'PX', ms('1d'));
+            client.set(`open-authorization-${steam64}`, true, 'PX', ms('1d'));
             res.sendStatus(200);
             return;
         }
