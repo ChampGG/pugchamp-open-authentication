@@ -140,8 +140,7 @@ Steam.ready(function(err) {
             });
 
             if (!bansResult || !bansResult.players || !bansResult.players[0] || bansResult.players[0].SteamId !== steam64) {
-                res.sendStatus(500);
-                return;
+                throw new Error('failed to retrieve bans from Steam API');
             }
 
             let playerBans = bansResult.players[0];
