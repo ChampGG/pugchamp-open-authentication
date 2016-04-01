@@ -133,7 +133,7 @@ Steam.ready(function(err) {
                     steamids: steam64
                 });
 
-                if (!summaryResult || !summaryResult.players || !summaryResult.players[0] || summaryResult.players[0].steamid === steam64) {
+                if (!summaryResult || !summaryResult.players || !summaryResult.players[0] || summaryResult.players[0].steamid !== steam64) {
                     throw new Error('failed to retrieve summary from Steam API');
                 }
 
