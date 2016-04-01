@@ -272,13 +272,14 @@ Steam.ready(function(err) {
                 }
             }
 
+            if (_.size(details) > 0) {
+                postUserAlert(steam64, !authorized, _.join(details, '; '));
+            }
+
             if (playerAuthorization && _.has(playerAuthorization, 'authorized')) {
                 authorized = playerAuthorization.authorized;
             }
 
-            if (_.size(details) > 0) {
-                postUserAlert(steam64, authorized, _.join(details, '; '));
-            }
             client.set(`open-authorization-${steam64}`, authorized, 'PX', AUTHORIZATION_CACHE_TIME);
             res.sendStatus(authorized ? 200 : 403);
         }
