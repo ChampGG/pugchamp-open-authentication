@@ -173,7 +173,7 @@ Steam.ready(function(err) {
                         }
 
                         if (gameInfo.playtime_forever < (HOUR_THRESHOLD * 60)) {
-                            let totalDuration = moment.duration(gameInfo.playtime_forever, 'minutes').format('h:mm');
+                            let totalDuration = moment.duration(gameInfo.playtime_forever, 'minutes').format('h:mm', {trim: false});
                             flags.set('lowPlaytime', {
                                 type: 'lowPlaytime',
                                 detail: `has only ${totalDuration} on record for TF2`
