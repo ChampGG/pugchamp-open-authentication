@@ -23,7 +23,9 @@ var app = express();
 var client = redis.createClient(config.get('redis'));
 var server = http.Server(app);
 
+const AUTHORIZATION_CACHE_TIME = ms(config.get('authorizationCacheTime'));
 const AUTHORIZATIONS = config.has('authorizations') ? config.get('authorizations') : [];
+const CHECKS = config.has('checks') ? config.get('checks') : [];
 const HOUR_THRESHOLD = config.get('hourThreshold');
 const STEAM_API_KEY = config.get('steam.apiKey');
 
@@ -102,18 +104,7 @@ Steam.ready(function(err) {
 
             let steam64 = steamID.getSteamID64();
 
-            for (let authorization of AUTHORIZATIONS) {
-                if (authorization.user === steam64) {
-                    if (authorization.authorized) {
-                        res.sendStatus(200);
-                    }
-                    else {
-                        res.sendStatus(403);
-                    }
-
-                    return;
-                }
-            }
+            let playerAuthorization = _.find(AUTHORIZATIONS, authorization => authorization.user === steam64);
 
             try {
                 let cacheResult = yield client.getAsync(`open-authorization-${steam64}`);
@@ -135,78 +126,161 @@ Steam.ready(function(err) {
                 // continue
             }
 
-            let bansResult = yield steam.getPlayerBansAsync({
-                steamids: steam64
-            });
+            let flags = new Map();
 
-            if (!bansResult || !bansResult.players || !bansResult.players[0] || bansResult.players[0].SteamId !== steam64) {
-                throw new Error('failed to retrieve bans from Steam API');
-            }
+            if (!playerAuthorization || !_.has(playerAuthorization, 'performChecks') || playerAuthorization.performChecks) {
+                let summaryResult = yield steam.getPlayerSummariesAsync({
+                    steamids: steam64
+                });
 
-            let playerBans = bansResult.players[0];
+                if (!summaryResult || !summaryResult.players || !summaryResult.players[0] || summaryResult.players[0].steamid === steam64) {
+                    throw new Error('failed to retrieve summary from Steam API');
+                }
 
-            if (playerBans.VACBanned) {
-                client.set(`open-authorization-${steam64}`, false);
-                postUserAlert(steam64, true, 'VAC bans on record');
-                res.sendStatus(403);
-                return;
-            }
+                let playerSummary = summaryResult.players[0];
 
-            if (playerBans.NumberOfGameBans > 0) {
-                client.set(`open-authorization-${steam64}`, false, 'PX', ms('1w'));
-                postUserAlert(steam64, true, 'game bans on record');
-                res.sendStatus(403);
-                return;
-            }
+                if (!playerSummary.profilestate) {
+                    flags.set('profileNotSetUp', {
+                        type: 'profileNotSetUp',
+                        detail: 'profile not set up'
+                    });
+                }
 
-            if (playerBans.CommunityBanned) {
-                postUserAlert(steam64, false, 'banned from Steam Community');
-            }
+                if (playerSummary.communityvisibilitystate !== 3) {
+                    flags.set('privateProfile', {
+                        type: 'privateProfile',
+                        detail: 'has a private profile'
+                    });
+                }
 
-            if (playerBans.EconomyBan !== 'none') {
-                postUserAlert(steam64, false, `current trade status is ${playerBans.EconomyBan}`);
-            }
+                let gameResult = yield steam.getOwnedGamesAsync({
+                    steamid: steam64,
+                    include_appinfo: false,
+                    include_played_free_games: true,
+                    appids_filter: [440]
+                });
 
-            let gameResult = yield steam.getOwnedGamesAsync({
-                steamid: steam64,
-                include_appinfo: false,
-                include_played_free_games: true,
-                appids_filter: [440]
-            });
+                if (!gameResult) {
+                    throw new Error('failed to retrieve games from Steam API');
+                }
 
-            if (!gameResult) {
-                throw new Error('failed to retrieve games from Steam API');
-            }
+                if (_.has(gameResult, 'game_count')) {
+                    if (gameResult.game_count > 0) {
+                        let gameInfo = gameResult.games[0];
 
-            if (_.has(gameResult, 'game_count')) {
-                if (gameResult.game_count > 0) {
-                    let gameInfo = gameResult.games[0];
+                        if (gameInfo.appid !== 440) {
+                            throw new Error('game returned was not TF2');
+                        }
 
-                    if (gameInfo.appid !== 440) {
-                        throw new Error('game returned was not TF2');
+                        if (gameInfo.playtime_forever < (HOUR_THRESHOLD * 60)) {
+                            let totalDuration = moment.duration(gameInfo.playtime_forever, 'minutes').format('h:mm');
+                            flags.set('lowPlaytime', {
+                                type: 'lowPlaytime',
+                                detail: `has only ${totalDuration} on record for TF2`
+                            });
+                        }
+
+                        if (gameInfo.playtime_2weeks > 20160) {
+                            let recentDuration = moment.duration(gameInfo.playtime_2weeks, 'minutes').format('w[w] d[d] h:mm');
+                            flags.set('impossiblePlaytime', {
+                                type: 'impossiblePlaytime',
+                                detail: `has an impossible ${recentDuration} in the past two weeks for TF2`
+                            });
+                        }
                     }
-
-                    if (gameInfo.playtime_forever < (HOUR_THRESHOLD * 60)) {
-                        let totalDuration = moment.duration(gameInfo.playtime_forever, 'minutes').format('h:mm');
-                        postUserAlert(steam64, false, `has only ${totalDuration} on record for TF2`);
+                    else {
+                        flags.set('noOwnership', {
+                            type: 'noOwnership',
+                            detail: 'does not own TF2'
+                        });
                     }
+                }
 
-                    if (gameInfo.playtime_2weeks > 20160) {
-                        let recentDuration = moment.duration(gameInfo.playtime_2weeks, 'minutes').format('w[w] d[d] h:mm');
-                        postUserAlert(steam64, false, `has an impossible ${recentDuration} in the past two weeks for TF2`);
+                let bansResult = yield steam.getPlayerBansAsync({
+                    steamids: steam64
+                });
+
+                if (!bansResult || !bansResult.players || !bansResult.players[0] || bansResult.players[0].SteamId !== steam64) {
+                    throw new Error('failed to retrieve bans from Steam API');
+                }
+
+                let playerBans = bansResult.players[0];
+
+                if (playerBans.VACBanned) {
+                    flags.set('vacBans', {
+                        type: 'vacBans',
+                        detail: 'VAC bans on record'
+                    });
+                }
+
+                if (playerBans.NumberOfGameBans > 0) {
+                    flags.set('gameBans', {
+                        type: 'gameBans',
+                        detail: `${playerBans.NumberOfGameBans} game bans on record`
+                    });
+                }
+
+                if (playerBans.CommunityBanned) {
+                    flags.set('communityBan', {
+                        type: 'communityBan',
+                        detail: 'banned from Steam Community'
+                    });
+                }
+
+                if (playerBans.EconomyBan !== 'none') {
+                    flags.set('economyBan', {
+                        type: 'economyBan',
+                        detail: `current trade status is ${playerBans.EconomyBan}`
+                    });
+                }
+            }
+
+            let authorized = true;
+            let details = [];
+
+            for (let check of CHECKS) {
+                if (check.ignore) {
+                    if (!playerAuthorization || !_.has(playerAuthorization, 'forceChecks') || !_.includes(playerAuthorization.forceChecks, check.type)) {
+                        continue;
                     }
                 }
                 else {
-                    postUserAlert(steam64, false, 'does not own TF2');
+                    if (playerAuthorization && _.has(playerAuthorization, 'ignoreChecks') && _.includes(playerAuthorization.ignoreChecks, check.type)) {
+                        continue;
+                    }
+                }
+
+                if (flags.has(check.type)) {
+                    let flagInfo = flags.get(check.type);
+
+                    if (_.has(check, 'authorized')) {
+                        authorized = check.authorized;
+                    }
+
+                    let warningResult = yield client.getAsync(`open-authorization-${steam64}-${check.type}`);
+
+                    if (!warningResult) {
+                        details.push(flagInfo.detail);
+
+                        if (_.has(check, 'warnInterval') && check.warnInterval !== 'never') {
+                            client.set(`open-authorization-${steam64}-${check.type}`, false, 'PX', ms(check.warnInterval));
+                        }
+                        else {
+                            client.set(`open-authorization-${steam64}-${check.type}`, false);
+                        }
+                    }
                 }
             }
-            else {
-                postUserAlert(steam64, false, 'has a private profile');
+
+            if (playerAuthorization && _.has(playerAuthorization, 'authorized')) {
+                authorized = playerAuthorization.authorized;
             }
 
-            client.set(`open-authorization-${steam64}`, true, 'PX', ms('1d'));
-            res.sendStatus(200);
-            return;
+            if (_.size(details) > 0) {
+                postUserAlert(steam64, authorized, _.join(details, '; '));
+            }
+            client.set(`open-authorization-${steam64}`, authorized, 'PX', AUTHORIZATION_CACHE_TIME);
+            res.sendStatus(authorized ? 200 : 403);
         }
         catch (err) {
             console.log(err.stack);

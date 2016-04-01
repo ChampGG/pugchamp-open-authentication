@@ -1,4 +1,35 @@
 {
+    "authorizationCacheTime": "1d",
+    "checks": [{
+        "type": "privateProfile",
+        "warnInterval": "never"
+    }, {
+        "type": "profileNotSetUp",
+        "warnInterval": "7d"
+    }, {
+        "type": "noOwnership",
+        "warnInterval": "7d"
+    }, {
+        "type": "lowPlaytime",
+        "warnInterval": "7d"
+    }, {
+        "type": "impossiblePlaytime",
+        "warnInterval": "7d"
+    }, {
+        "type": "economyBan",
+        "warnInterval": "7d"
+    }, {
+        "type": "communityBan",
+        "warnInterval": "7d"
+    }, {
+        "authorized": false,
+        "type": "gameBan",
+        "warnInterval": "7d"
+    }, {
+        "authorized": false,
+        "type": "vacBan",
+        "warnInterval": "7d"
+    }],
     "hourThreshold": 250,
     "listen": 3000,
     "redis": "redis://localhost"
