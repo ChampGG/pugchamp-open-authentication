@@ -291,6 +291,13 @@ Steam.ready(function(err) {
     }));
 });
 
+try {
+    fs.unlinkSync(config.get('server.listen'));
+}
+catch (err) {
+    // ignore
+}
+
 server.listen(config.get('listen'));
 
 try {
