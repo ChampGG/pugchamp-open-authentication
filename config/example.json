@@ -9,6 +9,7 @@
     "slack": {
         "incomingWebhook": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
         "messageDefaults": {
+            "channel": "#user-alerts",
             "username": "champbot",
             "icon_emoji": ":trophy:"
         }

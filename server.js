@@ -53,7 +53,6 @@ function postUserAlert(steamID, denied, reason) {
 
         if (sendToSlack) {
             let slackMessage = {
-                channel: '#user-alerts',
                 attachments: [{
                     fallback: message,
                     color: denied ? 'danger' : 'warning',
