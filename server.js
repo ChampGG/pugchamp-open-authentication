@@ -1,4 +1,3 @@
-/* jshint node: true, esversion: 6, eqeqeq: true, latedef: true, undef: true, unused: true */
 'use strict';
 
 const _ = require('lodash');
@@ -6,6 +5,7 @@ const bluebird = require('bluebird');
 const Botkit = require('botkit');
 const co = require('co');
 const config = require('config');
+const debug = require('debug')('pugchamp:open-authorization');
 const express = require('express');
 const fs = require('fs');
 const http = require('http');
@@ -51,6 +51,8 @@ function postUserAlert(steamID, denied, reason) {
     return co(function*() {
         let message = `${steamID} was ${denied ? 'DENIED' : 'flagged'}: ${reason}`;
 
+        debug(message);
+
         if (sendToSlack) {
             let slackMessage = {
                 attachments: [{
@@ -63,9 +65,6 @@ function postUserAlert(steamID, denied, reason) {
             };
 
             yield sendToSlack(_.defaultsDeep(slackMessage, config.get('slack.messageDefaults')));
-        }
-        else {
-            console.log(message);
         }
     });
 }
@@ -103,7 +102,7 @@ Steam.ready(function(err) {
 
             let steam64 = steamID.getSteamID64();
 
-            let playerAuthorization = _.find(AUTHORIZATIONS, authorization => authorization.user === steam64);
+            let playerAuthorization = _.find(AUTHORIZATIONS, ['user', steam64]);
 
             try {
                 let cacheResult = yield client.getAsync(`open-authorization-${steam64}`);
@@ -172,7 +171,9 @@ Steam.ready(function(err) {
                         }
 
                         if (gameInfo.playtime_forever < (HOUR_THRESHOLD * 60)) {
-                            let totalDuration = moment.duration(gameInfo.playtime_forever, 'minutes').format('h:mm', {trim: false});
+                            let totalDuration = moment.duration(gameInfo.playtime_forever, 'minutes').format('h:mm', {
+                                trim: false
+                            });
                             flags.set('lowPlaytime', {
                                 type: 'lowPlaytime',
                                 detail: `has only ${totalDuration} on record for TF2`
@@ -283,7 +284,7 @@ Steam.ready(function(err) {
             res.sendStatus(authorized ? 200 : 403);
         }
         catch (err) {
-            console.log(err.stack);
+            debug(err.stack);
             res.sendStatus(500);
             return;
         }

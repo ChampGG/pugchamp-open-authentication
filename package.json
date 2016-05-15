@@ -1,78 +1,99 @@
 {
-  "name": "pugchamp-na-pro-authorization",
+  "name": "pugchamp-open-authorization",
   "main": "server.js",
   "author": "ChampGG",
-  "license": "UNLICENSED",
-  "private": true,
+  "license": "MIT",
   "dependencies": {
-    "bluebird": "^3.3.4",
-    "botkit": "0.0.11",
+    "bluebird": "^3.3.5",
+    "botkit": "^0.1.1",
     "co": "^4.6.0",
-    "config": "^1.19.0",
+    "config": "^1.20.1",
+    "debug": "^2.2.0",
     "express": "^4.13.4",
-    "lodash": "^4.2.1",
-    "moment": "^2.12.0",
+    "lodash": "^4.12.0",
+    "moment": "^2.13.0",
     "moment-duration-format": "^1.3.0",
     "ms": "^0.7.1",
     "redis": "^2.4.2",
     "steam-webapi": "^0.6.5",
-    "steamid": "^0.3.1"
+    "steamid": "^1.0.0"
   },
   "eslintConfig": {
     "env": {
       "es6": true,
       "node": true
     },
-    "extends": "eslint:recommended",
+    "extends": [
+      "eslint:recommended",
+      "plugin:lodash/recommended"
+    ],
     "parserOptions": {
       "ecmaVersion": 6
     },
+    "plugins": [
+      "lodash"
+    ],
     "rules": {
-      "array-callback-return": 2,
-      "arrow-body-style": 2,
+      "array-callback-return": "error",
+      "arrow-body-style": "error",
       "arrow-parens": [
-        2,
+        "error",
         "as-needed"
       ],
-      "arrow-spacing": 2,
-      "block-scoped-var": 2,
+      "arrow-spacing": "error",
+      "block-scoped-var": "error",
       "brace-style": [
-        2,
+        "error",
         "stroustrup"
       ],
-      "callback-return": 2,
-      "comma-style": 2,
-      "curly": 2,
-      "dot-location": 2,
-      "dot-notation": 2,
-      "eqeqeq": 2,
-      "generator-star-spacing": [
-        2,
-        "after"
+      "callback-return": "error",
+      "comma-style": "error",
+      "curly": "error",
+      "dot-location": "error",
+      "dot-notation": "error",
+      "eqeqeq": "error",
+      "global-require": "error",
+      "handle-callback-err": "error",
+      "key-spacing": "error",
+      "no-confusing-arrow": [
+        "error",
+        {
+          "allowParens": true
+        }
       ],
-      "global-require": 2,
-      "handle-callback-err": 2,
-      "key-spacing": 2,
-      "no-confusing-arrow": 2,
-      "no-mixed-requires": 2,
-      "no-new-require": 2,
-      "no-path-concat": 2,
-      "no-process-exit": 2,
-      "no-shadow": 2,
-      "no-throw-literal": 2,
-      "no-unneeded-ternary": 2,
-      "no-use-before-define": 2,
-      "object-shorthand": 2,
-      "operator-assignment": 2,
-      "prefer-spread": 2,
-      "prefer-template": 2,
-      "require-yield": 2,
+      "no-mixed-requires": "error",
+      "no-new-require": "error",
+      "no-path-concat": "error",
+      "no-process-exit": "error",
+      "no-shadow": "error",
+      "no-throw-literal": "error",
+      "no-unneeded-ternary": "error",
+      "no-use-before-define": "error",
+      "object-shorthand": "error",
+      "operator-assignment": "error",
+      "prefer-spread": "error",
+      "prefer-template": "error",
+      "require-yield": "error",
       "quotes": [
-        2,
+        "error",
         "single"
       ],
-      "template-curly-spacing": 2,
-      "yoda": 2
+      "template-curly-spacing": "error",
+      "yoda": "error"
     }
-  }
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "version": "0.1.0",
+  "description": "authorization system for PugChamp Open systems",
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChampGG/pugchamp-open-authorization.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ChampGG/pugchamp-open-authorization/issues"
+  },
+  "homepage": "https://github.com/ChampGG/pugchamp-open-authorization#readme"
 }
