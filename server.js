@@ -292,7 +292,7 @@ Steam.ready(function(err) {
 });
 
 try {
-    fs.unlinkSync(config.get('server.listen'));
+    fs.unlinkSync(config.get('listen'));
 }
 catch (err) {
     // ignore
