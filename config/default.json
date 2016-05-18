@@ -23,11 +23,11 @@
         "warnInterval": "7d"
     }, {
         "authorized": false,
-        "type": "gameBan",
+        "type": "gameBans",
         "warnInterval": "7d"
     }, {
         "authorized": false,
-        "type": "vacBan",
+        "type": "vacBans",
         "warnInterval": "7d"
     }],
     "hourThreshold": 250,
