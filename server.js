@@ -22,6 +22,7 @@ require('moment-duration-format');
 var app = express();
 var client = redis.createClient(config.get('redis'));
 var server = http.Server(app);
+var steam;
 
 const AUTHORIZATION_CACHE_TIME = ms(config.get('authorizationCacheTime'));
 const AUTHORIZATIONS = config.has('authorizations') ? config.get('authorizations') : [];
@@ -69,6 +70,76 @@ function postUserAlert(steamID, denied, reason) {
     });
 }
 
+function performChecks(user) {
+    return co(function*() {
+        try {
+            let checks = {};
+
+            let steamID = new SteamID(user);
+            if (!steamID.isValid()) {
+                throw new Error('invalid Steam ID');
+            }
+
+            let steam64 = steamID.getSteamID64();
+
+            if (!steam) {
+                throw new Error('Steam ID not available');
+            }
+
+            let summaryResult = yield steam.getPlayerSummariesAsync({
+                steamids: steam64
+            });
+
+            if (!summaryResult || !summaryResult.players || !summaryResult.players[0] || summaryResult.players[0].steamid !== steam64) {
+                throw new Error('failed to retrieve summary from Steam API');
+            }
+
+            let playerSummary = summaryResult.players[0];
+
+            checks.profileSetUp = !!playerSummary.profileState;
+            checks.profileVisible = playerSummary.communityvisibilitystate === 3;
+
+            let gameResult = yield steam.getOwnedGamesAsync({
+                steamid: steam64,
+                include_appinfo: false,
+                include_played_free_games: true,
+                appids_filter: [440]
+            });
+
+            if (!gameResult) {
+                throw new Error('failed to retrieve games from Steam API');
+            }
+
+            checks.gameOwned = gameResult.game_count === 0 && gameResult.games[0].appid === 440;
+            if (checks.gameOwned) {
+                checks.recentPlaytime = gameResult.games[0].playtime_2weeks;
+                checks.totalPlaytime = gameResult.games[0].playtime_forever;
+            }
+
+            let bansResult = yield steam.getPlayerBansAsync({
+                steamids: steam64
+            });
+
+            if (!bansResult || !bansResult.players || !bansResult.players[0] || bansResult.players[0].SteamId !== steam64) {
+                throw new Error('failed to retrieve bans from Steam API');
+            }
+
+            let playerBans = bansResult.players[0];
+
+            checks.vacBans = playerBans.NumberOfVACBans;
+            checks.gameBans = playerBans.NumberOfGameBans;
+            checks.communityBan = playerBans.CommunityBanned;
+            checks.economyBan = playerBans.EconomyBan;
+
+            return checks;
+        }
+        catch (err) {
+            debug(`error while performing checks for ${user}: ${err.stack}`);
+            return null;
+        }
+    });
+}
+
 Steam.ready(function(err) {
     if (err) {
         throw err;
@@ -76,7 +147,7 @@ Steam.ready(function(err) {
 
     bluebird.promisifyAll(Steam.prototype);
 
-    var steam = new Steam();
+    steam = new Steam();
 
     app.get('/', co.wrap(function*(req, res) {
         try {
