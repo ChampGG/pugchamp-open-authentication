@@ -8,10 +8,13 @@ const config = require('config');
 const debug = require('debug')('pugchamp:open-authorization');
 const express = require('express');
 const fs = require('fs');
+const hbs = require('hbs');
 const http = require('http');
 const moment = require('moment');
 const ms = require('ms');
+const path = require('path');
 const redis = require('redis');
+const serveStatic = require('serve-static');
 const Steam = require('steam-webapi');
 const SteamID = require('steamid');
 
@@ -87,7 +90,7 @@ function performChecks(user) {
             let steam64 = steamID.getSteamID64();
 
             if (!steam) {
-                throw new Error('Steam ID not available');
+                throw new Error('Steam not available');
             }
 
             let summaryResult = yield steam.getPlayerSummariesAsync({
@@ -103,21 +106,23 @@ function performChecks(user) {
             checks.profileSetUp = !!playerSummary.profilestate;
             checks.profileVisibility = playerSummary.communityvisibilitystate === 3;
 
-            let gameResult = yield steam.getOwnedGamesAsync({
-                steamid: steam64,
-                include_appinfo: false,
-                include_played_free_games: true,
-                appids_filter: [440]
-            });
+            if (checks.profileVisibility) {
+                let gameResult = yield steam.getOwnedGamesAsync({
+                    steamid: steam64,
+                    include_appinfo: false,
+                    include_played_free_games: true,
+                    appids_filter: [440]
+                });
 
-            if (!gameResult) {
-                throw new Error('failed to retrieve games from Steam API');
-            }
+                if (!gameResult) {
+                    throw new Error('failed to retrieve games from Steam API');
+                }
 
-            checks.gameOwned = gameResult.game_count > 0 && gameResult.games[0].appid === 440;
-            if (checks.gameOwned) {
-                checks.recentPlaytime = gameResult.games[0].playtime_2weeks;
-                checks.totalPlaytime = gameResult.games[0].playtime_forever;
+                checks.gameOwned = gameResult.game_count > 0 && gameResult.games[0].appid === 440;
+                if (checks.gameOwned) {
+                    checks.recentPlaytime = gameResult.games[0].playtime_2weeks;
+                    checks.totalPlaytime = gameResult.games[0].playtime_forever;
+                }
             }
 
             let bansResult = yield steam.getPlayerBansAsync({
@@ -170,28 +175,32 @@ function calculateCheckFlags(checks, rules) {
         value: checks.profileVisibility ? 'public' : 'private'
     });
 
-    flags.push({
-        type: 'gameOwned',
-        action: getAction(!checks.gameOwned, rules.gameOwned),
-        title: 'Game Owned',
-        value: checks.gameOwned ? 'yes' : 'no'
-    });
+    if (checks.profileVisibility) {
+        flags.push({
+            type: 'gameOwned',
+            action: getAction(!checks.gameOwned, rules.gameOwned),
+            title: 'Game Owned',
+            value: checks.gameOwned ? 'yes' : 'no'
+        });
 
-    flags.push({
-        type: 'recentPlaytime',
-        action: getAction(ms(`${checks.recentPlaytime}m`) > MAX_RECENT_THRESHOLD, rules.recentPlaytime),
-        title: 'Recent Playtime (last two weeks)',
-        value: moment.duration(checks.recentPlaytime, 'minutes').format('w[w] d[d] h:mm')
-    });
+        if (checks.gameOwned) {
+            flags.push({
+                type: 'recentPlaytime',
+                action: getAction(ms(`${checks.recentPlaytime}m`) > MAX_RECENT_THRESHOLD, rules.recentPlaytime),
+                title: 'Recent Playtime (last two weeks)',
+                value: moment.duration(checks.recentPlaytime, 'minutes').format('w[w] d[d] h:mm')
+            });
 
-    flags.push({
-        type: 'totalPlaytime',
-        action: getAction(ms(`${checks.totalPlaytime}m`) < ms(rules.totalPlaytime.threshold), rules.totalPlaytime),
-        title: 'Total Playtime',
-        value: moment.duration(checks.totalPlaytime, 'minutes').format('h:mm', {
-            trim: false
-        })
-    });
+            flags.push({
+                type: 'totalPlaytime',
+                action: getAction(ms(`${checks.totalPlaytime}m`) < ms(rules.totalPlaytime.threshold), rules.totalPlaytime),
+                title: 'Total Playtime',
+                value: moment.duration(checks.totalPlaytime, 'minutes').format('h:mm', {
+                    trim: false
+                })
+            });
+        }
+    }
 
     flags.push({
         type: 'vacBans',
@@ -224,10 +233,88 @@ function calculateCheckFlags(checks, rules) {
     return flags;
 }
 
+app.set('view engine', 'hbs');
+app.set('trust proxy', 'loopback');
+app.use('/components', serveStatic(path.resolve(__dirname, 'bower_components')));
+
+hbs.registerHelper('flag', function(flag) {
+    if (flag.action === 'pass') {
+        return new hbs.handlebars.SafeString(`<div class="panel panel-success"><div class="panel-heading">${flag.title}</div><div class="panel-body">${flag.value}</div></div>`);
+    }
+    else if (flag.action === 'ignore') {
+        return new hbs.handlebars.SafeString(`<div class="panel panel-info"><div class="panel-heading">${flag.title}</div><div class="panel-body">${flag.value}</div></div>`);
+    }
+    else if (flag.action === 'warn') {
+        return new hbs.handlebars.SafeString(`<div class="panel panel-warning"><div class="panel-heading">${flag.title}</div><div class="panel-body">${flag.value}</div></div>`);
+    }
+    else if (flag.action === 'fail') {
+        return new hbs.handlebars.SafeString(`<div class="panel panel-danger"><div class="panel-heading">${flag.title}</div><div class="panel-body">${flag.value}</div></div>`);
+    }
+});
+
 app.get('/', co.wrap(function*(req, res) {
+    if (!req.query.user) {
+        res.render('index');
+        return;
+    }
+
+    try {
+        let steamID;
+
+        try {
+            steamID = new SteamID(req.query.user);
+        }
+        catch (err) {
+            res.sendStatus(400);
+            return;
+        }
+
+        if (!steamID.isValid()) {
+            res.sendStatus(400);
+            return;
+        }
+
+        let steam64 = steamID.getSteamID64();
+
+        let playerOverride = OVERRIDES[steam64];
+
+        let checkResults = yield performChecks(req.query.user);
+        let checkRules = _.defaultsDeep({}, _.get(playerOverride, 'checkRules', {}), CHECK_RULES);
+
+        let flags = calculateCheckFlags(checkResults, checkRules);
+        let authorized = !_.some(flags, ['action', 'fail']);
+
+        let summaryResult = yield steam.getPlayerSummariesAsync({
+            steamids: steam64
+        });
+
+        if (!summaryResult || !summaryResult.players || !summaryResult.players[0] || summaryResult.players[0].steamid !== steam64) {
+            throw new Error('failed to retrieve summary from Steam API');
+        }
+
+        let player = summaryResult.players[0];
+
+        if (_.has(playerOverride, 'authorized')) {
+            authorized = playerOverride.authorized;
+        }
+
+        res.render('index', {
+            authorized,
+            flags,
+            player
+        });
+    }
+    catch (err) {
+        debug(err.stack);
+        res.sendStatus(500);
+        return;
+    }
+}));
+
+app.get('/check', co.wrap(function*(req, res) {
     try {
         if (!req.query.user) {
-            res.sendStatus(403);
+            res.sendStatus(400);
             return;
         }
 
@@ -237,12 +324,12 @@ app.get('/', co.wrap(function*(req, res) {
             steamID = new SteamID(req.query.user);
         }
         catch (err) {
-            res.sendStatus(403);
+            res.sendStatus(400);
             return;
         }
 
         if (!steamID.isValid()) {
-            res.sendStatus(403);
+            res.sendStatus(400);
             return;
         }
 

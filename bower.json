@@ -1,0 +1,20 @@
+{
+  "name": "pugchamp-open-authorization",
+  "description": "authorization system for PugChamp Open systems",
+  "main": "server.js",
+  "authors": [
+    "ChampGG"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/ChampGG/pugchamp-open-authorization",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "bootstrap": "^3.3.6"
+  }
+}
