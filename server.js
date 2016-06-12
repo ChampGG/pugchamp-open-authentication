@@ -19,20 +19,17 @@ bluebird.promisifyAll(redis.RedisClient.prototype);
 bluebird.promisifyAll(redis.Multi.prototype);
 require('moment-duration-format');
 
+const AUTHORIZATION_CACHE_TIME = ms(config.get('authorizationCacheTime'));
+const CHECK_RULES = config.get('checkRules');
+const MAX_RECENT_THRESHOLD = ms('14d');
+const OVERRIDES = config.has('overrides') ? config.get('overrides') : {};
+const STEAM_API_KEY = config.get('steam.apiKey');
+
 var app = express();
 var client = redis.createClient(config.get('redis'));
 var server = http.Server(app);
+var sendToSlack;
 var steam;
-
-const AUTHORIZATION_CACHE_TIME = ms(config.get('authorizationCacheTime'));
-const AUTHORIZATIONS = config.has('authorizations') ? config.get('authorizations') : [];
-const CHECKS = config.has('checks') ? config.get('checks') : [];
-const HOUR_THRESHOLD = config.get('hourThreshold');
-const STEAM_API_KEY = config.get('steam.apiKey');
-
-Steam.key = STEAM_API_KEY;
-
-let sendToSlack;
 
 if (config.has('slack')) {
     const SLACK_INCOMING_WEBHOOK_URL = config.get('slack.incomingWebhook');
@@ -48,9 +45,11 @@ if (config.has('slack')) {
     });
 }
 
-function postUserAlert(steamID, denied, reason) {
+Steam.key = STEAM_API_KEY;
+
+function postUserAlert(steamID, denied, flags) {
     return co(function*() {
-        let message = `${steamID} was ${denied ? 'DENIED' : 'flagged'}: ${reason}`;
+        let message = `${steamID} was ${denied ? 'DENIED' : 'flagged'}: ${_(flags).map(flag => `${flag.title}: ${flag.value}`).join(', ')}`;
 
         debug(message);
 
@@ -59,9 +58,14 @@ function postUserAlert(steamID, denied, reason) {
                 attachments: [{
                     fallback: message,
                     color: denied ? 'danger' : 'warning',
-                    author_name: steamID,
-                    author_link: `http://steamcommunity.com/profiles/${steamID}`,
-                    text: `${denied ? 'DENIED' : 'flagged'}: ${reason}`
+                    title: steamID,
+                    title_link: `http://steamcommunity.com/profiles/${steamID}`,
+                    text: `${denied ? 'DENIED' : 'flagged'}`,
+                    fields: _.map(flags, flag => ({
+                        title: flag.title,
+                        value: flag.value,
+                        short: true
+                    }))
                 }]
             };
 
@@ -96,8 +100,8 @@ function performChecks(user) {
 
             let playerSummary = summaryResult.players[0];
 
-            checks.profileSetUp = !!playerSummary.profileState;
-            checks.profileVisible = playerSummary.communityvisibilitystate === 3;
+            checks.profileSetUp = !!playerSummary.profilestate;
+            checks.profileVisibility = playerSummary.communityvisibilitystate === 3;
 
             let gameResult = yield steam.getOwnedGamesAsync({
                 steamid: steam64,
@@ -110,7 +114,7 @@ function performChecks(user) {
                 throw new Error('failed to retrieve games from Steam API');
             }
 
-            checks.gameOwned = gameResult.game_count === 0 && gameResult.games[0].appid === 440;
+            checks.gameOwned = gameResult.game_count > 0 && gameResult.games[0].appid === 440;
             if (checks.gameOwned) {
                 checks.recentPlaytime = gameResult.games[0].playtime_2weeks;
                 checks.totalPlaytime = gameResult.games[0].playtime_forever;
@@ -140,6 +144,177 @@ function performChecks(user) {
     });
 }
 
+function getAction(condition, rule) {
+    if (condition) {
+        return rule.action;
+    }
+    else {
+        return 'pass';
+    }
+}
+
+function calculateCheckFlags(checks, rules) {
+    let flags = [];
+
+    flags.push({
+        type: 'profileSetUp',
+        action: getAction(!checks.profileSetUp, rules.profileSetUp),
+        title: 'Profile Set Up',
+        value: checks.profileSetUp ? 'yes' : 'no'
+    });
+
+    flags.push({
+        type: 'profileVisibility',
+        action: getAction(!checks.profileVisibility, rules.profileVisibility),
+        title: 'Profile Visibility',
+        value: checks.profileVisibility ? 'public' : 'private'
+    });
+
+    flags.push({
+        type: 'gameOwned',
+        action: getAction(!checks.gameOwned, rules.gameOwned),
+        title: 'Game Owned',
+        value: checks.gameOwned ? 'yes' : 'no'
+    });
+
+    flags.push({
+        type: 'recentPlaytime',
+        action: getAction(ms(`${checks.recentPlaytime}m`) > MAX_RECENT_THRESHOLD, rules.recentPlaytime),
+        title: 'Recent Playtime (last two weeks)',
+        value: moment.duration(checks.recentPlaytime, 'minutes').format('w[w] d[d] h:mm')
+    });
+
+    flags.push({
+        type: 'totalPlaytime',
+        action: getAction(ms(`${checks.totalPlaytime}m`) < ms(rules.totalPlaytime.threshold), rules.totalPlaytime),
+        title: 'Total Playtime',
+        value: moment.duration(checks.totalPlaytime, 'minutes').format('h:mm', {
+            trim: false
+        })
+    });
+
+    flags.push({
+        type: 'vacBans',
+        action: getAction(checks.vacBans > rules.vacBans.threshold, rules.vacBans),
+        title: 'VAC Bans',
+        value: checks.vacBans
+    });
+
+    flags.push({
+        type: 'gameBans',
+        action: getAction(checks.gameBans > rules.gameBans.threshold, rules.gameBans),
+        title: 'Game Bans',
+        value: checks.gameBans
+    });
+
+    flags.push({
+        type: 'communityBan',
+        action: getAction(checks.communityBan, rules.communityBan),
+        title: 'Community Banned',
+        value: checks.communityBan ? 'yes' : 'no'
+    });
+
+    flags.push({
+        type: 'economyBan',
+        action: getAction(checks.economyBan !== 'none', rules.economyBan),
+        title: 'Economy Ban Status',
+        value: checks.economyBan
+    });
+
+    return flags;
+}
+
+app.get('/', co.wrap(function*(req, res) {
+    try {
+        if (!req.query.user) {
+            res.sendStatus(403);
+            return;
+        }
+
+        let steamID;
+
+        try {
+            steamID = new SteamID(req.query.user);
+        }
+        catch (err) {
+            res.sendStatus(403);
+            return;
+        }
+
+        if (!steamID.isValid()) {
+            res.sendStatus(403);
+            return;
+        }
+
+        let steam64 = steamID.getSteamID64();
+
+        try {
+            let cacheResult = yield client.getAsync(`open-authorization-${steam64}`);
+
+            if (cacheResult) {
+                let authorized = JSON.parse(cacheResult);
+
+                if (authorized) {
+                    res.sendStatus(200);
+                }
+                else {
+                    res.sendStatus(403);
+                }
+
+                return;
+            }
+        }
+        catch (err) {
+            // continue
+        }
+
+        let playerOverride = OVERRIDES[steam64];
+
+        let checkResults = yield performChecks(req.query.user);
+        let checkRules = _.defaultsDeep({}, _.get(playerOverride, 'checkRules', {}), CHECK_RULES);
+
+        let flags = calculateCheckFlags(checkResults, checkRules);
+        let authorized = !_.some(flags, ['action', 'fail']);
+
+        let alert = false;
+
+        for (let flag of flags) {
+            if (flag.action === 'warn' || flag.action === 'fail') {
+                let previousValueResult = yield client.getAsync(`open-authorization-${steam64}-${flag.type}`);
+
+                try {
+                    let previousValue = JSON.parse(previousValueResult);
+
+                    if (previousValue !== flag.value) {
+                        alert = true;
+                    }
+                }
+                catch (err) {
+                    alert = true;
+                }
+
+                client.setAsync(`open-authorization-${steam64}-${flag.type}`, JSON.stringify(flag.value));
+            }
+        }
+
+        if (alert) {
+            postUserAlert(steam64, !authorized, _.filter(flags, flag => flag.action === 'warn' || flag.action === 'fail'));
+        }
+
+        if (_.has(playerOverride, 'authorized')) {
+            authorized = playerOverride.authorized;
+        }
+
+        client.set(`open-authorization-${steam64}`, authorized, 'PX', AUTHORIZATION_CACHE_TIME);
+        res.sendStatus(authorized ? 200 : 403);
+    }
+    catch (err) {
+        debug(err.stack);
+        res.sendStatus(500);
+        return;
+    }
+}));
+
 Steam.ready(function(err) {
     if (err) {
         throw err;
@@ -148,218 +323,6 @@ Steam.ready(function(err) {
     bluebird.promisifyAll(Steam.prototype);
 
     steam = new Steam();
-
-    app.get('/', co.wrap(function*(req, res) {
-        try {
-            if (!req.query.user) {
-                res.sendStatus(403);
-                return;
-            }
-
-            let steamID;
-
-            try {
-                steamID = new SteamID(req.query.user);
-            }
-            catch (err) {
-                res.sendStatus(403);
-                return;
-            }
-
-            if (!steamID.isValid()) {
-                res.sendStatus(403);
-                return;
-            }
-
-            let steam64 = steamID.getSteamID64();
-
-            let playerAuthorization = _.find(AUTHORIZATIONS, ['user', steam64]);
-
-            try {
-                let cacheResult = yield client.getAsync(`open-authorization-${steam64}`);
-
-                if (cacheResult) {
-                    let authorized = JSON.parse(cacheResult);
-
-                    if (authorized) {
-                        res.sendStatus(200);
-                    }
-                    else {
-                        res.sendStatus(403);
-                    }
-
-                    return;
-                }
-            }
-            catch (err) {
-                // continue
-            }
-
-            let flags = new Map();
-
-            if (!playerAuthorization || !_.has(playerAuthorization, 'performChecks') || playerAuthorization.performChecks) {
-                let summaryResult = yield steam.getPlayerSummariesAsync({
-                    steamids: steam64
-                });
-
-                if (!summaryResult || !summaryResult.players || !summaryResult.players[0] || summaryResult.players[0].steamid !== steam64) {
-                    throw new Error('failed to retrieve summary from Steam API');
-                }
-
-                let playerSummary = summaryResult.players[0];
-
-                if (!playerSummary.profilestate) {
-                    flags.set('profileNotSetUp', {
-                        type: 'profileNotSetUp',
-                        detail: 'profile not set up'
-                    });
-                }
-
-                if (playerSummary.communityvisibilitystate !== 3) {
-                    flags.set('privateProfile', {
-                        type: 'privateProfile',
-                        detail: 'has a private profile'
-                    });
-                }
-
-                let gameResult = yield steam.getOwnedGamesAsync({
-                    steamid: steam64,
-                    include_appinfo: false,
-                    include_played_free_games: true,
-                    appids_filter: [440]
-                });
-
-                if (!gameResult) {
-                    throw new Error('failed to retrieve games from Steam API');
-                }
-
-                if (_.has(gameResult, 'game_count')) {
-                    if (gameResult.game_count > 0) {
-                        let gameInfo = gameResult.games[0];
-
-                        if (gameInfo.appid !== 440) {
-                            throw new Error('game returned was not TF2');
-                        }
-
-                        if (gameInfo.playtime_forever < (HOUR_THRESHOLD * 60)) {
-                            let totalDuration = moment.duration(gameInfo.playtime_forever, 'minutes').format('h:mm', {
-                                trim: false
-                            });
-                            flags.set('lowPlaytime', {
-                                type: 'lowPlaytime',
-                                detail: `has only ${totalDuration} on record for TF2`
-                            });
-                        }
-
-                        if (gameInfo.playtime_2weeks > 20160) {
-                            let recentDuration = moment.duration(gameInfo.playtime_2weeks, 'minutes').format('w[w] d[d] h:mm');
-                            flags.set('impossiblePlaytime', {
-                                type: 'impossiblePlaytime',
-                                detail: `has an impossible ${recentDuration} in the past two weeks for TF2`
-                            });
-                        }
-                    }
-                    else {
-                        flags.set('noOwnership', {
-                            type: 'noOwnership',
-                            detail: 'does not own TF2'
-                        });
-                    }
-                }
-
-                let bansResult = yield steam.getPlayerBansAsync({
-                    steamids: steam64
-                });
-
-                if (!bansResult || !bansResult.players || !bansResult.players[0] || bansResult.players[0].SteamId !== steam64) {
-                    throw new Error('failed to retrieve bans from Steam API');
-                }
-
-                let playerBans = bansResult.players[0];
-
-                if (playerBans.VACBanned) {
-                    flags.set('vacBans', {
-                        type: 'vacBans',
-                        detail: 'VAC bans on record'
-                    });
-                }
-
-                if (playerBans.NumberOfGameBans > 0) {
-                    flags.set('gameBans', {
-                        type: 'gameBans',
-                        detail: `${playerBans.NumberOfGameBans} game bans on record`
-                    });
-                }
-
-                if (playerBans.CommunityBanned) {
-                    flags.set('communityBan', {
-                        type: 'communityBan',
-                        detail: 'banned from Steam Community'
-                    });
-                }
-
-                if (playerBans.EconomyBan !== 'none') {
-                    flags.set('economyBan', {
-                        type: 'economyBan',
-                        detail: `current trade status is ${playerBans.EconomyBan}`
-                    });
-                }
-            }
-
-            let authorized = true;
-            let details = [];
-
-            for (let check of CHECKS) {
-                if (check.ignore) {
-                    if (!playerAuthorization || !_.has(playerAuthorization, 'forceChecks') || !_.includes(playerAuthorization.forceChecks, check.type)) {
-                        continue;
-                    }
-                }
-                else {
-                    if (playerAuthorization && _.has(playerAuthorization, 'ignoreChecks') && _.includes(playerAuthorization.ignoreChecks, check.type)) {
-                        continue;
-                    }
-                }
-
-                if (flags.has(check.type)) {
-                    let flagInfo = flags.get(check.type);
-
-                    if (_.has(check, 'authorized')) {
-                        authorized = check.authorized;
-                    }
-
-                    let warningResult = yield client.getAsync(`open-authorization-${steam64}-${check.type}`);
-
-                    if (!warningResult) {
-                        details.push(flagInfo.detail);
-
-                        if (_.has(check, 'warnInterval') && check.warnInterval !== 'never') {
-                            client.set(`open-authorization-${steam64}-${check.type}`, false, 'PX', ms(check.warnInterval));
-                        }
-                        else {
-                            client.set(`open-authorization-${steam64}-${check.type}`, false);
-                        }
-                    }
-                }
-            }
-
-            if (_.size(details) > 0) {
-                postUserAlert(steam64, !authorized, _.join(details, '; '));
-            }
-
-            if (playerAuthorization && _.has(playerAuthorization, 'authorized')) {
-                authorized = playerAuthorization.authorized;
-            }
-
-            client.set(`open-authorization-${steam64}`, authorized, 'PX', AUTHORIZATION_CACHE_TIME);
-            res.sendStatus(authorized ? 200 : 403);
-        }
-        catch (err) {
-            debug(err.stack);
-            res.sendStatus(500);
-            return;
-        }
-    }));
 });
 
 try {
