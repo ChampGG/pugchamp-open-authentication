@@ -1,36 +1,35 @@
 {
     "authorizationCacheTime": "1d",
-    "checks": [{
-        "type": "privateProfile",
-        "warnInterval": "never"
-    }, {
-        "type": "profileNotSetUp",
-        "warnInterval": "7d"
-    }, {
-        "type": "noOwnership",
-        "warnInterval": "7d"
-    }, {
-        "type": "lowPlaytime",
-        "warnInterval": "7d"
-    }, {
-        "type": "impossiblePlaytime",
-        "warnInterval": "7d"
-    }, {
-        "type": "economyBan",
-        "warnInterval": "7d"
-    }, {
-        "type": "communityBan",
-        "warnInterval": "7d"
-    }, {
-        "authorized": false,
-        "type": "gameBans",
-        "warnInterval": "7d"
-    }, {
-        "authorized": false,
-        "type": "vacBans",
-        "warnInterval": "7d"
-    }],
-    "hourThreshold": 250,
-    "listen": 3000,
-    "redis": "redis://localhost"
+    "checkRules": {
+        "profileSetUp": {
+            "action": "warn"
+        },
+        "profileVisibility": {
+            "action": "warn"
+        },
+        "gameOwned": {
+            "action": "warn"
+        },
+        "recentPlaytime": {
+            "action": "warn"
+        },
+        "totalPlaytime": {
+            "action": "warn",
+            "threshold": "250h"
+        },
+        "vacBans": {
+            "action": "fail",
+            "threshold": 0
+        },
+        "gameBans": {
+            "action": "fail",
+            "threshold": 0
+        },
+        "communityBan": {
+            "action": "warn"
+        },
+        "economyBan": {
+            "action": "warn"
+        }
+    }
 }

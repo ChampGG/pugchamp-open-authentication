@@ -23,16 +23,16 @@ const AUTHORIZATION_CACHE_TIME = ms(config.get('authorizationCacheTime'));
 const CHECK_RULES = config.get('checkRules');
 const MAX_RECENT_THRESHOLD = ms('14d');
 const OVERRIDES = config.has('overrides') ? config.get('overrides') : {};
-const STEAM_API_KEY = config.get('steam.apiKey');
+const STEAM_API_KEY = config.get('server.steam.apiKey');
 
 var app = express();
-var client = redis.createClient(config.get('redis'));
+var client = redis.createClient(config.get('server.redis'));
 var server = http.Server(app);
 var sendToSlack;
 var steam;
 
-if (config.has('slack')) {
-    const SLACK_INCOMING_WEBHOOK_URL = config.get('slack.incomingWebhook');
+if (config.has('server.slack')) {
+    const SLACK_INCOMING_WEBHOOK_URL = config.get('server.slack.incomingWebhook');
 
     let controller = Botkit.slackbot();
     let bot = controller.spawn({
@@ -69,7 +69,7 @@ function postUserAlert(steamID, denied, flags) {
                 }]
             };
 
-            yield sendToSlack(_.defaultsDeep(slackMessage, config.get('slack.messageDefaults')));
+            yield sendToSlack(_.defaultsDeep(slackMessage, config.get('server.slack.messageDefaults')));
         }
     });
 }
@@ -326,16 +326,16 @@ Steam.ready(function(err) {
 });
 
 try {
-    fs.unlinkSync(config.get('listen'));
+    fs.unlinkSync(config.get('server.listen'));
 }
 catch (err) {
     // ignore
 }
 
-server.listen(config.get('listen'));
+server.listen(config.get('server.listen'));
 
 try {
-    fs.chmodSync(config.get('listen'), '775');
+    fs.chmodSync(config.get('server.listen'), '775');
 }
 catch (err) {
     // ignore

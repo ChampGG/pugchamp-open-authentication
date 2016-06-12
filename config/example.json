@@ -1,20 +1,28 @@
 {
-    "authorizations": [{
-        "authorized": true,
-        "forceChecks": ["impossiblePlaytime"],
-        "ignoreChecks": ["lowPlaytime"],
-        "performChecks": true,
-        "user": "76561198043850090"
-    }],
-    "slack": {
-        "incomingWebhook": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
-        "messageDefaults": {
-            "channel": "#user-alerts",
-            "username": "champbot",
-            "icon_emoji": ":trophy:"
+    "overrides": {
+        "76561198043850090": {
+            "authorized": true,
+            "checkRules": {
+                "vacBans": {
+                    "action": "warn",
+                    "threshold": 1
+                }
+            }
         }
     },
-    "steam": {
-        "apiKey": "XXXXXXXXXXXXXXXXX"
+    "server": {
+        "listen": 3000,
+        "redis": "redis://localhost",
+        "slack": {
+            "incomingWebhook": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+            "messageDefaults": {
+                "channel": "#user-alerts",
+                "username": "champbot",
+                "icon_emoji": ":trophy:"
+            }
+        },
+        "steam": {
+            "apiKey": "XXXXXXXXXXXXXXXXX"
+        }
     }
 }
