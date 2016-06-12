@@ -298,6 +298,8 @@ app.get('/', co.wrap(function*(req, res) {
             authorized = playerOverride.authorized;
         }
 
+        client.set(`open-authorization-${steam64}`, authorized, 'PX', AUTHORIZATION_CACHE_TIME);
+
         res.render('index', {
             authorized,
             flags,
